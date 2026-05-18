@@ -54,3 +54,14 @@ def test_null_vector_store_reports_disabled_reason():
     assert vec.available is False
     assert vec.reason == "LanceDB not bundled"
     assert vec.list_tables() == []
+
+
+def test_vector_status_reports_disabled_for_null_store(monkeypatch):
+    from data.vector import connection
+
+    monkeypatch.setattr(connection, "vec", connection.NullVectorStore("LanceDB not bundled"))
+
+    status = connection.vector_status()
+
+    assert status["status"] == "disabled"
+    assert status["error"] == "LanceDB not bundled"

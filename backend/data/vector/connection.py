@@ -68,7 +68,7 @@ def vector_status() -> dict:
     with _vector_lock:
         if getattr(vec, "available", True) is False:
             return {
-                "status": "unavailable",
+                "status": "disabled",
                 "error": getattr(vec, "reason", "") or "vector store is unavailable",
                 "tables": [],
             }
