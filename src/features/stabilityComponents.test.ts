@@ -48,11 +48,13 @@ describe("FIX.md frontend stability contracts", () => {
     expect(approvalDrawer).toContain("Mark as applied");
   });
 
-  it("keeps semantic matching runtime mandatory", () => {
+  it("keeps required runtime pack mandatory", () => {
     expect(semanticRuntimePrompt).toContain("/api/v1/runtime/vector");
     expect(semanticRuntimePrompt).toContain("/api/v1/runtime/vector/install");
     expect(semanticRuntimePrompt).toContain("installInFlightRef");
     expect(semanticRuntimePrompt).toContain("formatBytes");
+    expect(semanticRuntimePrompt).toContain("Install required runtime pack");
+    expect(semanticRuntimePrompt).toContain("Playwright Chromium");
     expect(semanticRuntimePrompt).not.toContain("Later");
   });
 

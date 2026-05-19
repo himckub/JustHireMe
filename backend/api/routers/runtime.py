@@ -70,7 +70,7 @@ def _ensure_install_job() -> None:
         if _job_running():
             return
         _LAST_ERROR = ""
-        _INSTALL_JOB = threading.Thread(target=_install_worker, name="jhm-vector-runtime-install", daemon=True)
+        _INSTALL_JOB = threading.Thread(target=_install_worker, name="jhm-runtime-pack-install", daemon=True)
         _INSTALL_JOB.start()
 
 

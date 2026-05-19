@@ -62,24 +62,24 @@ function statusMessage(state: PromptState, payload: RuntimePayload | null, error
   if (state === "waiting") {
     return error
       ? `${error} Retrying automatically while the local backend starts.`
-      : "Waiting for the local backend to start before installing resume matching.";
+      : "Waiting for the local backend to start before installing the required runtime pack.";
   }
   if (state === "installing") {
-    return payload?.progress?.message || "Installing LanceDB, PyArrow, and vector search support.";
+    return payload?.progress?.message || "Installing LanceDB, PyArrow, embeddings, and Playwright Chromium.";
   }
   if (error) return error;
   const vectorError = payload?.vector?.error || payload?.install_error;
   if (vectorError) return vectorError;
-  const asset = payload?.runtime?.asset || "semantic runtime";
-  return `${asset} is required for resume matching and identity graph search.`;
+  const asset = payload?.runtime?.asset || "JustHireMe runtime pack";
+  return `${asset} installs LanceDB, vector search support, the local embedder, and Playwright Chromium in one download.`;
 }
 
 function progressLabel(state: PromptState, progress: RuntimeProgress | undefined, now: number) {
-  if (state === "checking") return "Checking semantic runtime.";
+  if (state === "checking") return "Checking required runtime pack.";
   if (state === "waiting") return "Waiting for the local backend; retrying every few seconds.";
-  if (!progress) return "Preparing resume matching runtime.";
+  if (!progress) return "Preparing JustHireMe runtime pack.";
 
-  const message = progress.message || "Installing resume matching runtime.";
+  const message = progress.message || "Installing JustHireMe runtime pack.";
   const percent = Number.isFinite(progress.percent) ? Math.min(100, Math.max(0, Math.round(progress.percent || 0))) : null;
   const downloaded = progress.downloaded || 0;
   const total = progress.total || 0;
@@ -222,7 +222,7 @@ export function SemanticRuntimePrompt({ api }: { api: ApiFetch }) {
   const progressPercent = Number.isFinite(progress?.percent) ? Math.min(100, Math.max(0, Math.round(progress?.percent || 0))) : null;
   const isBusy = state === "checking" || state === "waiting" || state === "installing";
   const canInstall = state === "required" || (state === "error" && Boolean(payload));
-  const title = state === "waiting" ? "Starting resume matching service" : "Install resume matching runtime";
+  const title = state === "waiting" ? "Starting local service" : "Install required runtime pack";
 
   if (state === "ready") return null;
 
@@ -231,7 +231,7 @@ export function SemanticRuntimePrompt({ api }: { api: ApiFetch }) {
       <section className="semantic-runtime-dialog" role="dialog" aria-modal="true" aria-labelledby="semantic-runtime-title">
         <div className="semantic-runtime-mark" aria-hidden="true">S</div>
         <div>
-          <div className="eyebrow">Required semantic engine</div>
+          <div className="eyebrow">Required runtime pack</div>
           <h2 id="semantic-runtime-title">{title}</h2>
           <p className={state === "error" ? "update-error" : undefined}>{message}</p>
           {isBusy && (

@@ -33,11 +33,23 @@ function vectorRuntimeAssetName() {
   return "JustHireMe-vector-runtime-linux.zip";
 }
 
-function localVectorRuntimeArchive() {
-  return join(repoRoot, "release-assets", vectorRuntimeAssetName());
+function runtimePackAssetName() {
+  if (process.platform === "win32") return "JustHireMe-runtime-pack-windows.zip";
+  if (process.platform === "darwin") return "JustHireMe-runtime-pack-macos.zip";
+  return "JustHireMe-runtime-pack-linux.zip";
 }
 
-function localVectorRuntimeUrl() {
+function localRuntimePackArchive() {
+  return join(repoRoot, "release-assets", runtimePackAssetName());
+}
+
+function localVectorRuntimeArchive() {
+  return existsSync(localRuntimePackArchive())
+    ? localRuntimePackArchive()
+    : join(repoRoot, "release-assets", vectorRuntimeAssetName());
+}
+
+function localRuntimePackUrl() {
   return pathToFileURL(localVectorRuntimeArchive()).href;
 }
 
@@ -297,7 +309,7 @@ async function ensureVectorRuntime(port, token) {
     return initial;
   }
   if (!existsSync(archive)) {
-    const message = `Vector runtime archive not found at ${archive}; semantic OTA install smoke skipped.`;
+    const message = `Runtime pack archive not found at ${archive}; OTA install smoke skipped.`;
     if (process.env.JHM_VECTOR_RUNTIME_REQUIRED === "1") fail(message);
     console.warn(message);
     return initial;
@@ -311,11 +323,11 @@ async function ensureVectorRuntime(port, token) {
       return last;
     }
     if (last.progress?.status === "error") {
-      fail(`Vector runtime install failed: ${JSON.stringify(last)}`);
+      fail(`Runtime pack install failed: ${JSON.stringify(last)}`);
     }
     await sleep(500);
   }
-  fail(`Vector runtime install did not become ready: ${JSON.stringify(last)}`);
+  fail(`Runtime pack install did not become ready: ${JSON.stringify(last)}`);
 }
 
 const explicitSidecar = resolveExplicitSidecar();
@@ -342,7 +354,8 @@ const child = spawn(sidecar, ["--no-services"], {
     ...process.env,
     JHM_APP_DATA_DIR: appDataDir,
     JHM_VECTOR_RUNTIME_DIR: join(appDataDir, "vector-runtime"),
-    JHM_VECTOR_RUNTIME_URL: localVectorRuntimeUrl(),
+    JHM_RUNTIME_PACK_URL: localRuntimePackUrl(),
+    JHM_VECTOR_RUNTIME_URL: localRuntimePackUrl(),
     LOCALAPPDATA: appDataDir,
     PYTHONUNBUFFERED: "1",
   },

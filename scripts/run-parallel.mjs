@@ -22,7 +22,7 @@ const groups = {
   "release:smoke": [
     ["frontend build", npm, ["run", "build"]],
     ["sidecar build", npm, ["run", "build:sidecar"]],
-    ["vector runtime asset", npm, ["run", "build:vector-runtime"]],
+    ["runtime pack asset", npm, ["run", "build:runtime-pack"]],
   ],
 };
 

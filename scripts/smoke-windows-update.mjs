@@ -33,10 +33,13 @@ function staticChecks() {
 }
 
 function localVectorRuntimeArchive() {
-  return join(repoRoot, "release-assets", "JustHireMe-vector-runtime-windows.zip");
+  const runtimePack = join(repoRoot, "release-assets", "JustHireMe-runtime-pack-windows.zip");
+  return existsSync(runtimePack)
+    ? runtimePack
+    : join(repoRoot, "release-assets", "JustHireMe-vector-runtime-windows.zip");
 }
 
-function localVectorRuntimeUrl() {
+function localRuntimePackUrl() {
   return pathToFileURL(localVectorRuntimeArchive()).href;
 }
 
@@ -248,7 +251,7 @@ async function ensureVectorRuntime(port, token) {
   const initial = await readApi(port, token, "/api/v1/runtime/vector");
   if (initial.ready) return initial;
   if (!existsSync(archive)) {
-    console.warn(`Vector runtime archive not found at ${archive}; installed package semantic OTA smoke skipped.`);
+    console.warn(`Runtime pack archive not found at ${archive}; installed package OTA smoke skipped.`);
     return initial;
   }
   await readApi(port, token, "/api/v1/runtime/vector/install", { method: "POST" });
@@ -257,10 +260,10 @@ async function ensureVectorRuntime(port, token) {
   while (Date.now() < deadline) {
     last = await readApi(port, token, "/api/v1/runtime/vector");
     if (last.ready) return last;
-    if (last.progress?.status === "error") fail(`Vector runtime install failed: ${JSON.stringify(last)}`);
+    if (last.progress?.status === "error") fail(`Runtime pack install failed: ${JSON.stringify(last)}`);
     await sleep(500);
   }
-  fail(`Vector runtime install did not become ready: ${JSON.stringify(last)}`);
+  fail(`Runtime pack install did not become ready: ${JSON.stringify(last)}`);
 }
 
 async function smokeInstalledSidecar(installDir, appDataDir) {
@@ -280,7 +283,8 @@ async function smokeInstalledSidecar(installDir, appDataDir) {
       ...process.env,
       JHM_APP_DATA_DIR: appDataDir,
       JHM_VECTOR_RUNTIME_DIR: join(appDataDir, "vector-runtime"),
-      JHM_VECTOR_RUNTIME_URL: localVectorRuntimeUrl(),
+      JHM_RUNTIME_PACK_URL: localRuntimePackUrl(),
+      JHM_VECTOR_RUNTIME_URL: localRuntimePackUrl(),
       LOCALAPPDATA: appDataDir,
       PYTHONUNBUFFERED: "1",
     },

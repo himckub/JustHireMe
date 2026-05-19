@@ -57,6 +57,22 @@ def vector_runtime_dir() -> Path:
     return _data_root() / "vector-runtime"
 
 
+def browser_runtime_dir() -> Path:
+    configured = os.environ.get("JHM_BROWSER_RUNTIME_DIR") or os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if configured:
+        return Path(configured)
+    return _data_root() / "browser-runtime" / "ms-playwright"
+
+
+def runtime_pack_asset_name() -> str:
+    system = sys_platform()
+    if system == "windows":
+        return "JustHireMe-runtime-pack-windows.zip"
+    if system == "darwin":
+        return "JustHireMe-runtime-pack-macos.zip"
+    return "JustHireMe-runtime-pack-linux.zip"
+
+
 def vector_runtime_asset_name() -> str:
     system = sys_platform()
     if system == "windows":
@@ -66,11 +82,22 @@ def vector_runtime_asset_name() -> str:
     return "JustHireMe-vector-runtime-linux.zip"
 
 
+def runtime_pack_url() -> str:
+    return os.environ.get(
+        "JHM_RUNTIME_PACK_URL",
+        f"{_RELEASE_DOWNLOAD_BASE}/{runtime_pack_asset_name()}",
+    )
+
+
 def vector_runtime_url() -> str:
     return os.environ.get(
         "JHM_VECTOR_RUNTIME_URL",
         f"{_RELEASE_DOWNLOAD_BASE}/{vector_runtime_asset_name()}",
     )
+
+
+def _legacy_vector_runtime_override() -> bool:
+    return bool(os.environ.get("JHM_VECTOR_RUNTIME_URL") and not os.environ.get("JHM_RUNTIME_PACK_URL"))
 
 
 def _set_progress(**updates) -> None:
@@ -134,12 +161,36 @@ def vector_runtime_ready(path: Path | None = None) -> bool:
         return False
 
 
+def browser_runtime_ready(path: Path | None = None) -> bool:
+    root = path or browser_runtime_dir()
+    if not root.exists():
+        return False
+    return any(candidate.name.lower().startswith("chromium") for candidate in root.iterdir() if candidate.is_dir())
+
+
+def runtime_pack_ready() -> bool:
+    vector_ready = vector_runtime_ready(vector_runtime_dir())
+    browser_ready = browser_runtime_ready(browser_runtime_dir())
+    return vector_ready and (browser_ready or _legacy_vector_runtime_override())
+
+
 def _archive_payload_dir(extract_dir: Path) -> Path | None:
     candidates = [extract_dir, *[path for path in extract_dir.rglob("*") if path.is_dir()]]
     for candidate in candidates:
         if (candidate / "lancedb").exists() and (candidate / "pyarrow").exists():
             return candidate
     return None
+
+
+def _runtime_pack_payloads(extract_dir: Path) -> tuple[Path | None, Path | None]:
+    candidates = [extract_dir, *[path for path in extract_dir.rglob("*") if path.is_dir()]]
+    for candidate in candidates:
+        vector_payload = candidate / "vector-runtime"
+        browser_payload = candidate / "browser-runtime" / "ms-playwright"
+        if (vector_payload / "lancedb").exists() and (vector_payload / "pyarrow").exists():
+            return vector_payload, browser_payload if browser_payload.exists() else None
+
+    return _archive_payload_dir(extract_dir), None
 
 
 def _safe_extract(archive_path: Path, extract_dir: Path) -> None:
@@ -154,7 +205,7 @@ def _safe_extract(archive_path: Path, extract_dir: Path) -> None:
             archive.extract(member, extract_dir)
             _set_progress(
                 status="extracting",
-                message="Unpacking resume matching runtime.",
+                message="Unpacking JustHireMe runtime pack.",
                 percent=min(84, 70 + round((index / total) * 14)),
             )
 
@@ -190,7 +241,7 @@ def _stream_to_file(reader, writer, total: int) -> None:
     downloaded = 0
     _set_progress(
         status="downloading",
-        message="Downloading resume matching runtime.",
+        message="Downloading JustHireMe runtime pack.",
         percent=1,
         downloaded=0,
         total=total,
@@ -205,7 +256,7 @@ def _stream_to_file(reader, writer, total: int) -> None:
         percent = min(70, max(1, round((downloaded / total) * 70))) if total else min(65, _INSTALL_PROGRESS.get("percent", 1) + 1)
         _set_progress(
             status="downloading",
-            message="Downloading resume matching runtime.",
+            message="Downloading JustHireMe runtime pack.",
             percent=percent,
             downloaded=downloaded,
             total=total,
@@ -220,7 +271,14 @@ def _directory_size(path: Path) -> int:
     return total
 
 
-def _copy_payload(payload: Path, runtime_dir: Path) -> None:
+def _copy_payload(
+    payload: Path,
+    runtime_dir: Path,
+    *,
+    message: str = "Installing JustHireMe runtime pack.",
+    start_percent: int = 84,
+    end_percent: int = 94,
+) -> None:
     if runtime_dir.exists():
         shutil.rmtree(runtime_dir)
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -245,10 +303,11 @@ def _copy_payload(payload: Path, runtime_dir: Path) -> None:
                     break
                 writer.write(chunk)
                 copied += len(chunk)
+                span = max(1, end_percent - start_percent)
                 _set_progress(
                     status="copying",
-                    message="Installing resume matching runtime.",
-                    percent=min(94, 84 + round((copied / total) * 10)),
+                    message=message,
+                    percent=min(end_percent, start_percent + round((copied / total) * span)),
                 )
         shutil.copystat(source, target)
 
@@ -256,10 +315,11 @@ def _copy_payload(payload: Path, runtime_dir: Path) -> None:
 def install_vector_runtime() -> Path:
     with _INSTALL_LOCK:
         runtime_dir = vector_runtime_dir()
-        if vector_runtime_ready(runtime_dir):
+        browser_dir = browser_runtime_dir()
+        if runtime_pack_ready():
             _set_progress(
                 status="installed",
-                message="Resume matching runtime is installed.",
+                message="Required runtime pack is installed.",
                 percent=100,
                 downloaded=0,
                 total=0,
@@ -268,10 +328,11 @@ def install_vector_runtime() -> Path:
             return runtime_dir
 
         runtime_dir.parent.mkdir(parents=True, exist_ok=True)
-        url = vector_runtime_url()
+        browser_dir.parent.mkdir(parents=True, exist_ok=True)
+        url = vector_runtime_url() if _legacy_vector_runtime_override() else runtime_pack_url()
         _set_progress(
             status="starting",
-            message="Preparing resume matching runtime install.",
+            message="Preparing JustHireMe runtime pack install.",
             percent=0,
             downloaded=0,
             total=0,
@@ -281,47 +342,74 @@ def install_vector_runtime() -> Path:
         try:
             with tempfile.TemporaryDirectory(prefix="jhm-vector-runtime-") as tmp:
                 tmp_dir = Path(tmp)
-                archive_path = tmp_dir / vector_runtime_asset_name()
+                archive_path = tmp_dir / (vector_runtime_asset_name() if _legacy_vector_runtime_override() else runtime_pack_asset_name())
                 try:
                     _download(url, archive_path)
                     extract_dir = tmp_dir / "extract"
                     extract_dir.mkdir(parents=True, exist_ok=True)
                     _set_progress(
                         status="extracting",
-                        message="Unpacking resume matching runtime.",
+                        message="Unpacking JustHireMe runtime pack.",
                         percent=70,
                     )
                     _safe_extract(archive_path, extract_dir)
                 except Exception as exc:
                     error = (
-                        "The semantic matching engine must be installed before JustHireMe can continue. "
-                        f"Could not download the vector runtime from {url}."
+                        "The required JustHireMe runtime pack must be installed before the app can continue. "
+                        f"Could not download it from {url}."
                     )
                     _set_progress(status="error", message=error, error=error)
                     raise RuntimeError(error) from exc
 
-                payload = _archive_payload_dir(extract_dir)
-                if payload is None:
-                    error = "Downloaded vector runtime archive did not contain LanceDB and PyArrow."
+                vector_payload, browser_payload = _runtime_pack_payloads(extract_dir)
+                if vector_payload is None:
+                    error = "Downloaded runtime pack did not contain LanceDB and PyArrow."
+                    _set_progress(status="error", message=error, error=error)
+                    raise RuntimeError(error)
+                if browser_payload is None and not _legacy_vector_runtime_override() and not browser_runtime_ready(browser_dir):
+                    error = "Downloaded runtime pack did not contain Playwright Chromium."
                     _set_progress(status="error", message=error, error=error)
                     raise RuntimeError(error)
 
                 _set_progress(
                     status="copying",
-                    message="Installing resume matching runtime.",
+                    message="Installing LanceDB and vector search support.",
                     percent=84,
                 )
-                _copy_payload(payload, runtime_dir)
+                _copy_payload(
+                    vector_payload,
+                    runtime_dir,
+                    message="Installing LanceDB and vector search support.",
+                    start_percent=84,
+                    end_percent=92,
+                )
+                if browser_payload is not None:
+                    _set_progress(
+                        status="copying",
+                        message="Installing Playwright Chromium browser support.",
+                        percent=92,
+                    )
+                    _copy_payload(
+                        browser_payload,
+                        browser_dir,
+                        message="Installing Playwright Chromium browser support.",
+                        start_percent=92,
+                        end_percent=98,
+                    )
 
-            _set_progress(status="verifying", message="Verifying resume matching runtime.", percent=95)
+            _set_progress(status="verifying", message="Verifying JustHireMe runtime pack.", percent=98)
             add_vector_runtime_to_path(runtime_dir)
             if not vector_runtime_ready(runtime_dir):
                 error = "Vector runtime installation finished, but LanceDB or PyArrow could not be imported."
                 _set_progress(status="error", message=error, error=error)
                 raise RuntimeError(error)
+            if not _legacy_vector_runtime_override() and not browser_runtime_ready(browser_dir):
+                error = "Runtime pack installation finished, but Playwright Chromium was not found."
+                _set_progress(status="error", message=error, error=error)
+                raise RuntimeError(error)
             _set_progress(
                 status="installed",
-                message="Resume matching runtime is ready.",
+                message="Required JustHireMe runtime pack is ready.",
                 percent=100,
                 downloaded=0,
                 total=0,
@@ -338,7 +426,10 @@ def install_vector_runtime() -> Path:
 
 def vector_runtime_status() -> dict:
     runtime_dir = vector_runtime_dir()
-    ready = vector_runtime_ready(runtime_dir)
+    browser_dir = browser_runtime_dir()
+    vector_ready = vector_runtime_ready(runtime_dir)
+    browser_ready = browser_runtime_ready(browser_dir)
+    ready = vector_ready and (browser_ready or _legacy_vector_runtime_override())
     if ready and runtime_dir.exists():
         status = "installed"
     elif ready:
@@ -350,6 +441,16 @@ def vector_runtime_status() -> dict:
         "ready": ready,
         "required": True,
         "dir": str(runtime_dir),
-        "asset": vector_runtime_asset_name(),
-        "url": vector_runtime_url(),
+        "asset": runtime_pack_asset_name(),
+        "url": runtime_pack_url(),
+        "vector": {
+            "ready": vector_ready,
+            "dir": str(runtime_dir),
+            "legacy_asset": vector_runtime_asset_name(),
+            "legacy_url": vector_runtime_url(),
+        },
+        "browser": {
+            "ready": browser_ready,
+            "dir": str(browser_dir),
+        },
     }

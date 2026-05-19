@@ -100,8 +100,8 @@ jobs:
       - name: Build sidecar with canonical script
         run: npm run build:sidecar
 
-      - name: Package mandatory vector runtime OTA asset
-        run: npm run build:vector-runtime
+      - name: Package mandatory runtime pack OTA asset
+        run: npm run build:runtime-pack
 
       - name: List sidecar output (Windows)
         if: matrix.platform == 'windows'
@@ -144,23 +144,6 @@ jobs:
             src-tauri/resources/backend/
             src-tauri/resources/sidecar-internal/
           retention-days: 1
-
-      - name: Package browser runtime OTA asset (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          Compress-Archive -Path src-tauri\resources\bin\ms-playwright -DestinationPath release-assets\JustHireMe-browser-runtime-windows.zip -Force
-
-      - name: Package browser runtime OTA asset (Unix)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-assets
-          cd src-tauri/resources/bin
-          zip -qr "../../../release-assets/JustHireMe-browser-runtime-${{ matrix.platform }}.zip" ms-playwright
 
       - name: Upload OTA runtime assets
         uses: actions/upload-artifact@v7
@@ -331,7 +314,7 @@ jobs:
             throw "Sidecar manifest not found."
           }
           Write-Host "Sidecar verified: $sidecar ($(( Get-Item $sidecar ).Length / 1MB) MB)"
-          Write-Host "Browser runtime and mandatory vector runtime are shipped as OTA assets, not bundled into the installer."
+          Write-Host "The mandatory runtime pack is shipped as a single OTA asset, not bundled into the installer."
 
       - name: Verify sidecar exists (Unix)
         if: matrix.platform != 'windows'
@@ -358,7 +341,7 @@ jobs:
           fi
           chmod +x "$sidecar"
           echo "Sidecar verified: $sidecar ($(du -h "$sidecar" | awk '{print $1}'))"
-          echo "Browser runtime and mandatory vector runtime are shipped as OTA assets, not bundled into the installer."
+          echo "The mandatory runtime pack is shipped as a single OTA asset, not bundled into the installer."
 
       - name: Prepare macOS sidecar permissions
         if: matrix.platform == 'macos'
@@ -665,8 +648,8 @@ jobs:
             echo "- Profile-aware graph and vector matching"
             echo "- Resume, cover letter, and outreach draft generation"
             echo "- Bundled backend sidecar"
-            echo "- Mandatory semantic vector runtime as a first-run OTA download"
-            echo "- Optional Playwright Chromium runtime as an on-demand OTA download"
+            echo "- Mandatory runtime pack as one first-run OTA download"
+            echo "- Runtime pack includes LanceDB, PyArrow, vector support, the local embedder path, and Playwright Chromium"
             echo "- Signed in-app updates for future releases"
             echo
             echo "---"

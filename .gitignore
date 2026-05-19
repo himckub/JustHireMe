@@ -85,6 +85,7 @@ scratch/
 .codex-temp-appdata/
 .codex-temp-sidecar/
 .codex-temp-vector-runtime/
+.codex-temp-runtime-pack/
 .codex-video-analysis/
 release-assets/
 release-assets-*/

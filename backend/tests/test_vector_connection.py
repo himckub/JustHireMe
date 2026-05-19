@@ -90,12 +90,15 @@ def test_vector_runtime_asset_name_is_platform_specific(monkeypatch):
 
     monkeypatch.setattr(runtime, "sys_platform", lambda: "windows")
     assert runtime.vector_runtime_asset_name() == "JustHireMe-vector-runtime-windows.zip"
+    assert runtime.runtime_pack_asset_name() == "JustHireMe-runtime-pack-windows.zip"
 
     monkeypatch.setattr(runtime, "sys_platform", lambda: "darwin")
     assert runtime.vector_runtime_asset_name() == "JustHireMe-vector-runtime-macos.zip"
+    assert runtime.runtime_pack_asset_name() == "JustHireMe-runtime-pack-macos.zip"
 
     monkeypatch.setattr(runtime, "sys_platform", lambda: "linux")
     assert runtime.vector_runtime_asset_name() == "JustHireMe-vector-runtime-linux.zip"
+    assert runtime.runtime_pack_asset_name() == "JustHireMe-runtime-pack-linux.zip"
 
 
 def test_vector_runtime_roots_include_common_site_package_layouts(tmp_path, monkeypatch):
@@ -108,6 +111,39 @@ def test_vector_runtime_roots_include_common_site_package_layouts(tmp_path, monk
     assert tmp_path / "vector-runtime" in roots
     assert tmp_path / "vector-runtime" / "site-packages" in roots
     assert tmp_path / "vector-runtime" / "Lib" / "site-packages" in roots
+
+
+def test_runtime_status_requires_single_pack_components(monkeypatch, tmp_path):
+    from data.vector import runtime
+
+    monkeypatch.setenv("JHM_VECTOR_RUNTIME_DIR", str(tmp_path / "vector-runtime"))
+    monkeypatch.setenv("JHM_BROWSER_RUNTIME_DIR", str(tmp_path / "browser-runtime" / "ms-playwright"))
+    monkeypatch.setattr(runtime, "sys_platform", lambda: "windows")
+    monkeypatch.setattr(runtime, "vector_runtime_ready", lambda _path=None: True)
+    monkeypatch.setattr(runtime, "browser_runtime_ready", lambda _path=None: False)
+
+    status = runtime.vector_runtime_status()
+
+    assert status["ready"] is False
+    assert status["asset"] == "JustHireMe-runtime-pack-windows.zip"
+    assert status["vector"]["ready"] is True
+    assert status["browser"]["ready"] is False
+
+
+def test_runtime_pack_payload_detection_finds_vector_and_browser(tmp_path):
+    from data.vector import runtime
+
+    root = tmp_path / "extract"
+    vector = root / "vector-runtime"
+    browser = root / "browser-runtime" / "ms-playwright"
+    (vector / "lancedb").mkdir(parents=True)
+    (vector / "pyarrow").mkdir()
+    (browser / "chromium-1200").mkdir(parents=True)
+
+    vector_payload, browser_payload = runtime._runtime_pack_payloads(root)
+
+    assert vector_payload == vector
+    assert browser_payload == browser
 
 
 def test_hash_embedding_fallback_reports_ok(monkeypatch):

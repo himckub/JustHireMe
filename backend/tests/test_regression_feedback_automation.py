@@ -109,12 +109,49 @@ class TestBrowserRuntimePackaging(unittest.TestCase):
             (runtime / "chromium-1200").mkdir()
             self.assertTrue(browser_runtime_ready(runtime))
 
+    def test_browser_runtime_finds_pruned_runtime_chromium_executable(self):
+        from automation import browser_runtime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / "ms-playwright"
+            chrome = runtime / "chromium-1200" / "chrome-win64" / "chrome.exe"
+            chrome.parent.mkdir(parents=True)
+            chrome.write_text("", encoding="utf-8")
+
+            with (
+                mock.patch.object(browser_runtime, "browser_runtime_dir", return_value=runtime),
+                mock.patch.object(browser_runtime, "sys_platform", return_value="windows"),
+            ):
+                self.assertEqual(browser_runtime._runtime_chromium_executable(), str(chrome))
+
+    def test_browser_runtime_installs_through_required_runtime_pack(self):
+        from automation import browser_runtime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / "ms-playwright"
+            calls = []
+
+            def fake_install():
+                calls.append("install")
+                (runtime / "chromium-1200").mkdir(parents=True)
+
+            with (
+                mock.patch.object(browser_runtime, "browser_runtime_dir", return_value=runtime),
+                mock.patch.object(browser_runtime, "install_vector_runtime", side_effect=fake_install),
+            ):
+                self.assertEqual(browser_runtime.ensure_browser_runtime(), runtime)
+
+            self.assertEqual(calls, ["install"])
+
     def test_vector_runtime_asset_name_is_platform_specific(self):
         from data.vector import runtime
 
         with mock.patch.object(runtime, "sys_platform", return_value="windows"):
             self.assertEqual(runtime.vector_runtime_asset_name(), "JustHireMe-vector-runtime-windows.zip")
+            self.assertEqual(runtime.runtime_pack_asset_name(), "JustHireMe-runtime-pack-windows.zip")
         with mock.patch.object(runtime, "sys_platform", return_value="darwin"):
             self.assertEqual(runtime.vector_runtime_asset_name(), "JustHireMe-vector-runtime-macos.zip")
+            self.assertEqual(runtime.runtime_pack_asset_name(), "JustHireMe-runtime-pack-macos.zip")
         with mock.patch.object(runtime, "sys_platform", return_value="linux"):
             self.assertEqual(runtime.vector_runtime_asset_name(), "JustHireMe-vector-runtime-linux.zip")
+            self.assertEqual(runtime.runtime_pack_asset_name(), "JustHireMe-runtime-pack-linux.zip")
