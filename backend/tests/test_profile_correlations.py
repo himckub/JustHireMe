@@ -17,10 +17,11 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 def test_rebuild_profile_correlations_runs_relationships_then_vectors(monkeypatch):
     from data.graph import profile as graph_profile
+    from data.graph import profile_correlations
 
     order = []
-    monkeypatch.setattr(graph_profile, "sync_profile_relationships", lambda: order.append("rel") or {"status": "ok"})
-    monkeypatch.setattr(graph_profile, "sync_vectors_from_graph", lambda: order.append("vec") or {"status": "ok"})
+    monkeypatch.setattr(profile_correlations, "sync_profile_relationships", lambda: order.append("rel") or {"status": "ok"})
+    monkeypatch.setattr(profile_correlations, "sync_vectors_from_graph", lambda: order.append("vec") or {"status": "ok"})
 
     out = graph_profile.rebuild_profile_correlations()
 

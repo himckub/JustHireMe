@@ -7,7 +7,6 @@ from urllib.parse import unquote
 from core.logging import get_logger
 from data.graph.connection import execute_query, sync_profile_relationships
 from data.sqlite.settings import save_settings
-from graph_service.helpers import is_bad_vector_label
 from data.graph.profile_base import (  # re-exported as profile.py public API
     IDENTITY_KEYS,
     _bulk_import_active,
@@ -18,7 +17,6 @@ from data.graph.profile_base import (  # re-exported as profile.py public API
     _query_rows,
     _safe_execute,
     _upsert_node,
-    _vec,
     bulk_profile_import,
     clean_profile_summary,
     empty_profile,
@@ -28,27 +26,18 @@ from data.graph.profile_base import (  # re-exported as profile.py public API
     stack_list,
 )
 from data.graph.profile_deletions import (
-    _delete_tokens,
     _forget_profile_deletion,
-    _load_profile_deletions,
     _remember_profile_deletion,
 )
 from data.graph.profile_vectors import (
     add_candidate_vec,
     add_credential_vec,
     add_experience_vec,
-    add_profile_vec,
     add_project_vec,
     add_skill_vec,
-    credential_text,
     delete_vec_id_from_all,
     delete_vec_rows,
     drop_profile_aggregate_vector,
-    experience_text,
-    profile_text,
-    project_text,
-    prune_bad_vector_rows,
-    skill_text,
 )
 from data.graph.profile_read import (
     get_profile,
@@ -70,6 +59,15 @@ from data.graph.profile_vectors import put_vec_rows as put_vec_rows
 from data.graph.profile_vectors import vec_table_names as vec_table_names
 from data.graph.profile_deletions import apply_profile_deletions as apply_profile_deletions
 from data.graph.profile_vectors import read_profile_from_vectors as read_profile_from_vectors
+from data.graph.profile_correlations import purge_profile_deletion_tombstones as purge_profile_deletion_tombstones
+from data.graph.profile_correlations import rebuild_profile_correlations as rebuild_profile_correlations
+from data.graph.profile_correlations import sync_vectors_from_graph as sync_vectors_from_graph
+from graph_service.helpers import is_bad_vector_label as is_bad_vector_label
+from data.graph.profile_base import _vec as _vec
+from data.graph.profile_deletions import _delete_tokens as _delete_tokens
+from data.graph.profile_deletions import _load_profile_deletions as _load_profile_deletions
+from data.graph.profile_vectors import profile_text as profile_text
+from data.graph.profile_vectors import skill_text as skill_text
 
 _log = get_logger(__name__)
 
@@ -152,140 +150,6 @@ def materialize_profile_snapshot(profile: dict | None = None, db_path: str | Non
     sync = sync_profile_relationships()
     save_profile_snapshot(profile, db_path)
     return {"status": "ok", "created": created, "relationships": sync}
-
-
-def purge_profile_deletion_tombstones(db_path: str | None = None) -> dict:
-    deletions = _load_profile_deletions(db_path)
-    purged = 0
-
-    def deleted(key: str, *values) -> bool:
-        tokens = _delete_tokens(values)
-        return bool(tokens.intersection(deletions.get(key, [])))
-
-    for row in _query_rows("MATCH (s:Skill) RETURN s.id, s.n"):
-        node_id, name = str(row[0] or ""), str(row[1] or "")
-        if deleted("skills", node_id, name, hash_id(name)):
-            delete_vec_id_from_all(node_id)
-            _safe_execute("MATCH (s:Skill) WHERE s.id = $id DETACH DELETE s", {"id": node_id})
-            purged += 1
-
-    for row in _query_rows("MATCH (p:Project) RETURN p.id, p.title"):
-        node_id, title = str(row[0] or ""), str(row[1] or "")
-        if deleted("projects", node_id, title, hash_id(title)):
-            delete_vec_id_from_all(node_id)
-            _safe_execute("MATCH (p:Project) WHERE p.id = $id DETACH DELETE p", {"id": node_id})
-            purged += 1
-
-    for row in _query_rows("MATCH (e:Experience) RETURN e.id, e.role, e.co"):
-        node_id = str(row[0] or "")
-        role = str(row[1] or "")
-        company = str(row[2] or "")
-        if deleted("exp", node_id, role, company, role + company, " at ".join(part for part in [role, company] if part), " - ".join(part for part in [role, company] if part)):
-            delete_vec_id_from_all(node_id)
-            _safe_execute("MATCH (e:Experience) WHERE e.id = $id DETACH DELETE e", {"id": node_id})
-            purged += 1
-
-    for label, key in [("Education", "education"), ("Certification", "certifications"), ("Achievement", "achievements")]:
-        for row in _query_rows(f"MATCH (n:{label}) RETURN n.id, n.title"):
-            node_id, title = str(row[0] or ""), str(row[1] or "")
-            if deleted(key, node_id, title, hash_id(title)):
-                delete_vec_id_from_all(node_id)
-                _safe_execute(f"MATCH (n:{label}) WHERE n.id = $id DETACH DELETE n", {"id": node_id})
-                purged += 1
-
-    if purged:
-        refresh_profile_snapshot(db_path)
-    return {"status": "ok", "purged": purged}
-
-
-def sync_vectors_from_graph() -> dict:
-    store = _vec()
-    if getattr(store, "available", True) is False:
-        return {
-            "status": "disabled",
-            "synced": 0,
-            "error": getattr(store, "reason", "") or "vector store is unavailable",
-        }
-    purge_profile_deletion_tombstones()
-    deleted_bad_rows = prune_bad_vector_rows()
-    candidates = []
-    skills = []
-    projects = []
-    experiences = []
-    credentials = []
-    try:
-        result = execute_query("MATCH (c:Candidate) RETURN c.id, c.n, c.s")
-        while result and result.has_next():
-            candidates.append(result.get_next())
-        result = execute_query("MATCH (s:Skill) RETURN s.id, s.n, s.cat")
-        while result and result.has_next():
-            skills.append(result.get_next())
-        result = execute_query("MATCH (p:Project) RETURN p.id, p.title, p.stack, p.impact")
-        while result and result.has_next():
-            projects.append(result.get_next())
-        result = execute_query("MATCH (e:Experience) RETURN e.id, e.role, e.co, e.period, e.d")
-        while result and result.has_next():
-            experiences.append(result.get_next())
-        for label in ["Certification", "Education", "Achievement"]:
-            result = execute_query(f"MATCH (n:{label}) RETURN n.id, n.title")
-            while result and result.has_next():
-                row = result.get_next()
-                credentials.append([row[0], row[1], label])
-    except Exception as exc:
-        logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:sync_vectors_from_graph: %s', exc)
-        return {"status": "error", "synced": 0, "error": str(exc)}
-
-    synced = 0
-    profile_parts: list[str] = []
-    for candidate_id, name, summary in candidates:
-        if is_bad_vector_label(name) and is_bad_vector_label(summary):
-            continue
-        add_candidate_vec(str(candidate_id), str(name or ""), str(summary or ""))
-        profile_parts.append(profile_text(name, summary))
-        synced += 1
-    for skill_id, name, category in skills:
-        if is_bad_vector_label(name):
-            continue
-        add_skill_vec(str(skill_id), str(name), str(category or "general"))
-        profile_parts.append(skill_text(name, category))
-        synced += 1
-    for project_id, title, stack, impact in projects:
-        if is_bad_vector_label(title):
-            continue
-        add_project_vec(str(project_id), str(title), str(stack or ""), str(impact or ""))
-        profile_parts.append(project_text(title, stack, impact))
-        synced += 1
-    for experience_id, role, company, period, description in experiences:
-        if is_bad_vector_label(role) and is_bad_vector_label(company):
-            continue
-        add_experience_vec(str(experience_id), str(role or ""), str(company or ""), str(period or ""), str(description or ""))
-        profile_parts.append(experience_text(role, company, period, description))
-        synced += 1
-    for credential_id, title, kind in credentials:
-        if is_bad_vector_label(title):
-            continue
-        add_credential_vec(str(credential_id), str(title), str(kind))
-        profile_parts.append(credential_text(title, kind))
-        synced += 1
-    if profile_parts:
-        add_profile_vec("profile:default", "Complete profile", "\n".join(profile_parts))
-        synced += 1
-    return {"status": "ok", "synced": synced, "deleted_bad_rows": deleted_bad_rows}
-
-
-def rebuild_profile_correlations(db_path: str | None = None) -> dict:
-    """Rebuild derived graph correlations and re-embed the profile.
-
-    Ingest paths create direct edges per item (HAS_SKILL / PROJ_UTILIZES /
-    EXP_UTILIZES) but NOT the derived correlation edges (RELATED_SKILL,
-    SIMILAR_PROJECT, PROJECT_SUPPORTS_EXPERIENCE, credential->skill). Those are
-    only produced by sync_profile_relationships(). Run this after an ingest so
-    correlations and vector tables reflect the freshly imported profile in one
-    pass, instead of waiting for a manual Knowledge-page repair sync.
-    """
-    relationships = sync_profile_relationships()
-    vectors = sync_vectors_from_graph()
-    return {"status": "ok", "relationships": relationships, "vectors": vectors}
 
 
 def _candidate_id() -> str | None:
