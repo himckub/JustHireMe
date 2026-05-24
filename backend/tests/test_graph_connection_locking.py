@@ -103,3 +103,28 @@ def test_graph_lock_timeout_is_generous_enough_for_rapid_deletes():
     # old 1.5s timeout starved later deletes — they hit GraphBusyError, which
     # _safe_execute swallowed, so the node was never actually removed.
     assert gc._GRAPH_LOCK_TIMEOUT_SECONDS >= 10
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Could not set lock on file: graph.kuzu",
+        "RuntimeError: IO exception: Could not set lock on file",
+        "concurrency error opening database",
+        "failed to acquire lock on file",
+    ],
+)
+def test_friendly_graph_error_explains_lock_contention(raw):
+    # Lock/concurrency errors are the common multi-process failure; the user-facing
+    # message must give remediation (close extra windows / stop stale backends) and
+    # still preserve the raw error for debugging.
+    msg = gc.friendly_graph_error(raw)
+    assert "locked by another JustHireMe backend process" in msg
+    assert "restart the app" in msg
+    assert raw in msg  # raw error preserved
+
+
+def test_friendly_graph_error_passes_through_non_lock_errors():
+    assert gc.friendly_graph_error("table does not exist") == "table does not exist"
+    assert gc.friendly_graph_error("") == ""
+    assert gc.friendly_graph_error(None) == ""
