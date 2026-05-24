@@ -73,12 +73,13 @@ def test_vector_status_reports_disabled_for_null_store(monkeypatch):
 
 def test_graph_vector_sync_skips_when_store_is_disabled(monkeypatch):
     from data.graph import profile as graph_profile
+    from data.graph import profile_correlations
     from data.vector import connection as vector_connection
     from data.vector.connection import NullVectorStore
 
     monkeypatch.setattr(vector_connection, "vec", NullVectorStore("LanceDB not bundled"))
     monkeypatch.setattr(
-        graph_profile,
+        profile_correlations,
         "execute_query",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("graph should not be queried")),
     )

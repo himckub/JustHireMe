@@ -2,7 +2,7 @@ import asyncio
 
 from profile.service import ProfileService
 from models.schema import C, S, E, P
-from data.graph import profile_base, profile_deletions, profile_read, profile_vectors
+from data.graph import profile_base, profile_deletions, profile_mutations, profile_read, profile_vectors
 
 
 def _sync_status():
@@ -128,10 +128,10 @@ def test_profile_service_update_identity_saves_profile_contact(monkeypatch):
     saved = {}
     snapshot = {"n": "Vasu", "s": "AI engineer", "skills": [], "projects": [], "exp": []}
 
-    monkeypatch.setattr("profile.service.graph_profile.load_profile_snapshot", lambda _db_path=None: snapshot)
-    monkeypatch.setattr("profile.service.graph_profile.save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
-    monkeypatch.setattr("profile.service.graph_profile.read_profile_from_graph", lambda: snapshot)
-    monkeypatch.setattr("profile.service.graph_profile.save_settings", lambda _payload, *_args: None)
+    monkeypatch.setattr("data.graph.profile_mutations.load_profile_snapshot", lambda _db_path=None: snapshot)
+    monkeypatch.setattr("data.graph.profile_mutations.save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
+    monkeypatch.setattr("data.graph.profile_mutations.read_profile_from_graph", lambda: snapshot)
+    monkeypatch.setattr("data.graph.profile_mutations.save_settings", lambda _payload, *_args: None)
 
     identity = service.update_identity({
         "email": "alex@example.test",
@@ -545,15 +545,15 @@ def test_graph_profile_materializes_profile_snapshot(monkeypatch):
 
     calls = {"candidate": [], "skills": [], "projects": [], "sync": 0, "saved": []}
 
-    monkeypatch.setattr(graph_profile, "update_candidate", lambda name, summary, _db_path=None: calls["candidate"].append((name, summary)))
-    monkeypatch.setattr(graph_profile, "add_skill", lambda name, category, _db_path=None: calls["skills"].append((name, category)))
-    monkeypatch.setattr(graph_profile, "add_project", lambda title, stack, repo, impact, _db_path=None: calls["projects"].append((title, stack, repo, impact)))
-    monkeypatch.setattr(graph_profile, "add_experience", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "add_education", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "add_certification", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "add_achievement", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "sync_profile_relationships", lambda: calls.update(sync=calls["sync"] + 1) or {"status": "ok"})
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: calls["saved"].append(profile))
+    monkeypatch.setattr(profile_mutations, "update_candidate", lambda name, summary, _db_path=None: calls["candidate"].append((name, summary)))
+    monkeypatch.setattr(profile_mutations, "add_skill", lambda name, category, _db_path=None: calls["skills"].append((name, category)))
+    monkeypatch.setattr(profile_mutations, "add_project", lambda title, stack, repo, impact, _db_path=None: calls["projects"].append((title, stack, repo, impact)))
+    monkeypatch.setattr(profile_mutations, "add_experience", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "add_education", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "add_certification", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "add_achievement", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "sync_profile_relationships", lambda: calls.update(sync=calls["sync"] + 1) or {"status": "ok"})
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: calls["saved"].append(profile))
 
     result = graph_profile.materialize_profile_snapshot({
         "n": "Jane Doe",
@@ -620,11 +620,11 @@ def test_graph_profile_manual_candidate_save_updates_snapshot(monkeypatch):
         def get_next(self):
             return next(rows, ["candidate-1"])
 
-    monkeypatch.setattr(profile_base, "execute_query", lambda *_args, **_kwargs: Result())
-    monkeypatch.setattr(graph_profile, "load_profile_snapshot", lambda _db_path=None: {"n": "Old", "s": "", "skills": [], "projects": [], "exp": []})
-    monkeypatch.setattr(graph_profile, "read_profile_from_graph", lambda: {"n": "Old", "s": "", "skills": [], "projects": [], "exp": []})
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
-    monkeypatch.setattr(graph_profile, "add_candidate_vec", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "execute_query", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr(profile_mutations, "load_profile_snapshot", lambda _db_path=None: {"n": "Old", "s": "", "skills": [], "projects": [], "exp": []})
+    monkeypatch.setattr(profile_mutations, "read_profile_from_graph", lambda: {"n": "Old", "s": "", "skills": [], "projects": [], "exp": []})
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "add_candidate_vec", lambda *_args, **_kwargs: None)
 
     result = graph_profile.update_candidate("Jane Doe", "Applied AI engineer")
 
@@ -638,11 +638,11 @@ def test_graph_profile_manual_candidate_save_falls_back_when_graph_unavailable(m
 
     saved = {}
 
-    monkeypatch.setattr(profile_base, "execute_query", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "load_profile_snapshot", lambda _db_path=None: {"n": "Old", "s": "", "skills": [], "projects": [], "exp": []})
-    monkeypatch.setattr(graph_profile, "read_profile_from_graph", lambda: (_ for _ in ()).throw(RuntimeError("graph locked")))
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
-    monkeypatch.setattr(graph_profile, "add_candidate_vec", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "execute_query", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "load_profile_snapshot", lambda _db_path=None: {"n": "Old", "s": "", "skills": [], "projects": [], "exp": []})
+    monkeypatch.setattr(profile_mutations, "read_profile_from_graph", lambda: (_ for _ in ()).throw(RuntimeError("graph locked")))
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "add_candidate_vec", lambda *_args, **_kwargs: None)
 
     result = graph_profile.update_candidate("Jane Doe", "Applied AI engineer")
 
@@ -658,12 +658,12 @@ def test_graph_profile_delete_education_accepts_title_path_and_updates_snapshot(
     deleted_vec_ids = []
     graph_deletes = []
 
-    monkeypatch.setattr(graph_profile, "_query_rows", lambda query, _params=None, **_kwargs: [["edu-1", "B.Tech / MBA"]] if "Education" in query else [])
-    monkeypatch.setattr(graph_profile, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
-    monkeypatch.setattr(graph_profile, "delete_vec_id_from_all", lambda row_id: deleted_vec_ids.append(row_id))
-    monkeypatch.setattr(graph_profile, "_refresh_after_write", lambda _db_path=None: None)
+    monkeypatch.setattr(profile_mutations, "_query_rows", lambda query, _params=None, **_kwargs: [["edu-1", "B.Tech / MBA"]] if "Education" in query else [])
+    monkeypatch.setattr(profile_mutations, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
+    monkeypatch.setattr(profile_mutations, "delete_vec_id_from_all", lambda row_id: deleted_vec_ids.append(row_id))
+    monkeypatch.setattr(profile_mutations, "_refresh_after_write", lambda _db_path=None: None)
     monkeypatch.setattr(
-        graph_profile,
+        profile_mutations,
         "load_profile_snapshot",
         lambda _db_path=None: {
             "n": "Jane",
@@ -674,7 +674,7 @@ def test_graph_profile_delete_education_accepts_title_path_and_updates_snapshot(
             "education": ["B.Tech / MBA", "MSc"],
         },
     )
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
 
     graph_profile.delete_education("B.Tech%20%2F%20MBA")
 
@@ -690,13 +690,13 @@ def test_graph_profile_delete_skill_accepts_name_when_id_is_missing(monkeypatch)
     graph_deletes = []
     deleted_vec_ids = []
 
-    monkeypatch.setattr(graph_profile, "_query_rows", lambda query, _params=None, **_kwargs: [["skill-1", "FastAPI"]] if "Skill" in query else [])
-    monkeypatch.setattr(graph_profile, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
-    monkeypatch.setattr(graph_profile, "delete_vec_rows", lambda _table, ids: deleted_vec_ids.extend(ids))
-    monkeypatch.setattr(graph_profile, "delete_vec_id_from_all", lambda row_id: deleted_vec_ids.append(row_id))
-    monkeypatch.setattr(graph_profile, "_refresh_after_write", lambda _db_path=None: None)
+    monkeypatch.setattr(profile_mutations, "_query_rows", lambda query, _params=None, **_kwargs: [["skill-1", "FastAPI"]] if "Skill" in query else [])
+    monkeypatch.setattr(profile_mutations, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
+    monkeypatch.setattr(profile_mutations, "delete_vec_rows", lambda _table, ids: deleted_vec_ids.extend(ids))
+    monkeypatch.setattr(profile_mutations, "delete_vec_id_from_all", lambda row_id: deleted_vec_ids.append(row_id))
+    monkeypatch.setattr(profile_mutations, "_refresh_after_write", lambda _db_path=None: None)
     monkeypatch.setattr(
-        graph_profile,
+        profile_mutations,
         "load_profile_snapshot",
         lambda _db_path=None: {
             "n": "Jane",
@@ -706,7 +706,7 @@ def test_graph_profile_delete_skill_accepts_name_when_id_is_missing(monkeypatch)
             "exp": [],
         },
     )
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
 
     graph_profile.delete_skill("FastAPI")
 
@@ -721,13 +721,13 @@ def test_graph_profile_delete_project_accepts_title_when_id_is_missing(monkeypat
     saved = {}
     graph_deletes = []
 
-    monkeypatch.setattr(graph_profile, "_query_rows", lambda query, _params=None, **_kwargs: [["proj-1", "Hiring Agent"]] if "Project" in query else [])
-    monkeypatch.setattr(graph_profile, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
-    monkeypatch.setattr(graph_profile, "delete_vec_rows", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "delete_vec_id_from_all", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "_refresh_after_write", lambda _db_path=None: None)
+    monkeypatch.setattr(profile_mutations, "_query_rows", lambda query, _params=None, **_kwargs: [["proj-1", "Hiring Agent"]] if "Project" in query else [])
+    monkeypatch.setattr(profile_mutations, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
+    monkeypatch.setattr(profile_mutations, "delete_vec_rows", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "delete_vec_id_from_all", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "_refresh_after_write", lambda _db_path=None: None)
     monkeypatch.setattr(
-        graph_profile,
+        profile_mutations,
         "load_profile_snapshot",
         lambda _db_path=None: {
             "n": "Jane",
@@ -737,7 +737,7 @@ def test_graph_profile_delete_project_accepts_title_when_id_is_missing(monkeypat
             "exp": [],
         },
     )
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
 
     graph_profile.delete_project("Hiring Agent")
 
@@ -813,13 +813,13 @@ def test_graph_profile_delete_experience_accepts_role_company_label_when_id_is_m
     saved = {}
     graph_deletes = []
 
-    monkeypatch.setattr(graph_profile, "_query_rows", lambda query, _params=None, **_kwargs: [["exp-1", "Engineer", "Acme"]] if "Experience" in query else [])
-    monkeypatch.setattr(graph_profile, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
-    monkeypatch.setattr(graph_profile, "delete_vec_rows", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "delete_vec_id_from_all", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "_refresh_after_write", lambda _db_path=None: None)
+    monkeypatch.setattr(profile_mutations, "_query_rows", lambda query, _params=None, **_kwargs: [["exp-1", "Engineer", "Acme"]] if "Experience" in query else [])
+    monkeypatch.setattr(profile_mutations, "_safe_execute", lambda query, params=None: graph_deletes.append((query, params)))
+    monkeypatch.setattr(profile_mutations, "delete_vec_rows", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "delete_vec_id_from_all", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "_refresh_after_write", lambda _db_path=None: None)
     monkeypatch.setattr(
-        graph_profile,
+        profile_mutations,
         "load_profile_snapshot",
         lambda _db_path=None: {
             "n": "Jane",
@@ -829,7 +829,7 @@ def test_graph_profile_delete_experience_accepts_role_company_label_when_id_is_m
             "exp": [{"role": "Engineer", "co": "Acme"}, {"id": "exp-2", "role": "Designer", "co": "Beta"}],
         },
     )
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: saved.update(profile))
 
     graph_profile.delete_experience("Engineer at Acme")
 
@@ -842,12 +842,12 @@ def test_graph_profile_delete_last_text_entry_allows_empty_snapshot(monkeypatch)
 
     saved = {}
 
-    monkeypatch.setattr(graph_profile, "_query_rows", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(graph_profile, "_safe_execute", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "delete_vec_id_from_all", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(graph_profile, "_refresh_after_write", lambda _db_path=None: None)
+    monkeypatch.setattr(profile_mutations, "_query_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(profile_mutations, "_safe_execute", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "delete_vec_id_from_all", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "_refresh_after_write", lambda _db_path=None: None)
     monkeypatch.setattr(
-        graph_profile,
+        profile_mutations,
         "load_profile_snapshot",
         lambda _db_path=None: {
             "n": "",
@@ -859,7 +859,7 @@ def test_graph_profile_delete_last_text_entry_allows_empty_snapshot(monkeypatch)
         },
     )
     monkeypatch.setattr(
-        graph_profile,
+        profile_mutations,
         "save_profile_snapshot",
         lambda profile, _db_path=None, **kwargs: saved.update({"profile": profile, "allow_empty": kwargs.get("allow_empty")}),
     )
@@ -893,10 +893,10 @@ def test_graph_profile_manual_skill_save_falls_back_when_graph_write_fails(monke
         raise RuntimeError("graph locked")
 
     monkeypatch.setattr(profile_base, "execute_query", locked_graph)
-    monkeypatch.setattr(graph_profile, "load_profile_snapshot", lambda _db_path=None: {"n": "Jane", "s": "", "skills": [], "projects": [], "exp": []})
-    monkeypatch.setattr(graph_profile, "read_profile_from_graph", lambda: (_ for _ in ()).throw(RuntimeError("graph locked")))
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
-    monkeypatch.setattr(graph_profile, "add_skill_vec", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "load_profile_snapshot", lambda _db_path=None: {"n": "Jane", "s": "", "skills": [], "projects": [], "exp": []})
+    monkeypatch.setattr(profile_mutations, "read_profile_from_graph", lambda: (_ for _ in ()).throw(RuntimeError("graph locked")))
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "add_skill_vec", lambda *_args, **_kwargs: None)
 
     result = graph_profile.add_skill("Python", "technical")
 
@@ -917,10 +917,10 @@ def test_graph_profile_manual_skill_save_updates_snapshot(monkeypatch):
             return []
 
     monkeypatch.setattr(profile_base, "execute_query", lambda *_args, **_kwargs: EmptyResult())
-    monkeypatch.setattr(graph_profile, "load_profile_snapshot", lambda _db_path=None: {"n": "Jane", "s": "", "skills": [], "projects": [], "exp": []})
-    monkeypatch.setattr(graph_profile, "read_profile_from_graph", lambda: {"n": "Jane", "s": "", "skills": [], "projects": [], "exp": []})
-    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
-    monkeypatch.setattr(graph_profile, "add_skill_vec", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(profile_mutations, "load_profile_snapshot", lambda _db_path=None: {"n": "Jane", "s": "", "skills": [], "projects": [], "exp": []})
+    monkeypatch.setattr(profile_mutations, "read_profile_from_graph", lambda: {"n": "Jane", "s": "", "skills": [], "projects": [], "exp": []})
+    monkeypatch.setattr(profile_mutations, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
+    monkeypatch.setattr(profile_mutations, "add_skill_vec", lambda *_args, **_kwargs: None)
 
     result = graph_profile.add_skill("Python", "technical")
 
