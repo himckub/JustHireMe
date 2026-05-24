@@ -90,6 +90,7 @@ def test_graph_vector_sync_skips_when_store_is_disabled(monkeypatch):
 
 def test_vector_table_names_normalize_lancedb_nested_rows(monkeypatch):
     from data.graph import profile as graph_profile
+    from data.graph import profile_vectors
     from graph_service.helpers import vector_table_names
     from ranking.semantic import _available_tables
 
@@ -98,7 +99,7 @@ def test_vector_table_names_normalize_lancedb_nested_rows(monkeypatch):
             return [["skills"], ["projects"]]
 
     fake_vec = FakeVec()
-    monkeypatch.setattr(graph_profile, "_vec", lambda: fake_vec)
+    monkeypatch.setattr(profile_vectors, "_vec", lambda: fake_vec)
 
     assert graph_profile.vec_table_names() == ["skills", "projects"]
     assert vector_table_names(fake_vec) == ["skills", "projects"]
@@ -107,6 +108,7 @@ def test_vector_table_names_normalize_lancedb_nested_rows(monkeypatch):
 
 def test_put_vec_rows_falls_back_when_create_reports_existing_table(monkeypatch):
     from data.graph import profile as graph_profile
+    from data.graph import profile_vectors
 
     calls = []
 
@@ -139,7 +141,7 @@ def test_put_vec_rows_falls_back_when_create_reports_existing_table(monkeypatch)
             calls.append(("open", table_name))
             return FakeTable()
 
-    monkeypatch.setattr(graph_profile, "_vec", lambda: FakeVec())
+    monkeypatch.setattr(profile_vectors, "_vec", lambda: FakeVec())
 
     graph_profile.put_vec_rows("skills", [{"id": "python", "label": "Python", "vector": [0.1], "extra": "drop"}])
 

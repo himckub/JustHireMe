@@ -523,9 +523,11 @@ def test_graph_profile_get_profile_hydrates_sparse_snapshot_from_vectors(monkeyp
     }
     saved = {}
 
+    from data.graph import profile_vectors
+
     monkeypatch.setattr(graph_profile, "load_profile_snapshot", lambda _db_path=None: snapshot)
     monkeypatch.setattr(graph_profile, "read_profile_from_graph", lambda **_kwargs: graph_profile.empty_profile())
-    monkeypatch.setattr(graph_profile, "_vec", lambda: FakeVec(tables))
+    monkeypatch.setattr(profile_vectors, "_vec", lambda: FakeVec(tables))
     monkeypatch.setattr(graph_profile, "get_setting", lambda _key, default="", *_args: default)
     monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None: saved.update(profile))
 
