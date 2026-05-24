@@ -4,6 +4,14 @@ from profile.service import ProfileService
 from models.schema import C, S, E, P
 
 
+def _sync_status():
+    return {"status": "ok", "relationships": {"status": "ok"}, "vectors": {"status": "ok", "synced": 1}}
+
+
+async def _ok_post_ingest_sync():
+    return _sync_status()
+
+
 def test_run_graph_propagates_bulk_profile_import_context():
     from data.graph import profile as graph_profile
     from data.graph.connection import run_graph
@@ -86,7 +94,7 @@ def test_profile_service_import_profile_data_counts_and_identity(monkeypatch):
     monkeypatch.setattr(service, "add_achievement", lambda title: {"title": title})
     monkeypatch.setattr(service, "update_identity", lambda identity: calls["identity"].append(identity) or identity)
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
 
     result = asyncio.run(service.import_profile_data({
         "candidate": {"name": "Vasu", "summary": "AI engineer"},
@@ -100,15 +108,16 @@ def test_profile_service_import_profile_data_counts_and_identity(monkeypatch):
     }))
 
     assert result["status"] == "ok"
-    assert result["stats"] == {
+    assert {key: value for key, value in result["stats"].items() if key not in {"vector_sync", "graph_sync"}} == {
         "skills": 1,
         "experience": 1,
         "projects": 1,
         "education": 1,
         "certifications": 1,
         "achievements": 1,
-        "vector_sync": "queued",
     }
+    assert result["stats"]["vector_sync"] == {"status": "ok", "synced": 1}
+    assert result["stats"]["graph_sync"] == _sync_status()
     assert calls["identity"][0]["email"] == "alex@example.test"
     assert calls["identity"][0]["github_url"] == "https://github.com/alex-example"
 
@@ -141,7 +150,7 @@ def test_profile_service_import_profile_data_accepts_legacy_keys(monkeypatch):
     monkeypatch.setattr(service, "add_skill", lambda name, category: seen.setdefault("skill", (name, category)))
     monkeypatch.setattr(service, "add_experience", lambda role, company, period, description: seen.setdefault("exp", (role, company, period, description)))
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
 
     result = asyncio.run(service.import_profile_data({
         "skills": [{"n": "FastAPI", "cat": "backend"}],
@@ -161,7 +170,7 @@ def test_profile_service_import_profile_data_sanitizes_bad_buckets(monkeypatch):
     monkeypatch.setattr(service, "add_project", lambda title, stack, repo, impact: calls["projects"].append((title, stack, repo, impact)))
     monkeypatch.setattr(service, "add_education", lambda title: calls["education"].append(title))
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
 
     result = asyncio.run(service.import_profile_data({
         "skills": [
@@ -189,6 +198,50 @@ def test_profile_service_import_profile_data_sanitizes_bad_buckets(monkeypatch):
     assert calls["education"] == ["Lovely Professional University, Punjab, CGPA 8.5"]
 
 
+def test_profile_normalization_rejects_github_metadata_as_skills():
+    from profile.github_ingestor import _fallback_project
+    from profile.normalization import normalize_profile_payload
+
+    cleaned = normalize_profile_payload({
+        "skills": [
+            {"name": "maintained through 2026-03-06", "category": "project_stack"},
+            {"name": "2 forks", "category": "project_stack"},
+            {"name": "memfs", "category": "project_stack"},
+            {"name": "send", "category": "project_stack"},
+            {"name": "TypeScript", "category": "github"},
+        ],
+        "projects": [
+            {
+                "title": "EmailDrafter",
+                "stack": "maintained through 2026-03-06, 2 forks, TypeScript, memfs, send",
+                "impact": "AI email draft tool",
+            }
+        ],
+    })
+
+    assert cleaned["skills"] == [{"name": "TypeScript", "category": "github"}]
+    assert cleaned["projects"][0]["stack"] == "TypeScript"
+    assert cleaned["projects"][0]["impact"] == "AI email draft tool"
+
+    fallback = _fallback_project(
+        {
+            "name": "EmailDrafter",
+            "description": "AI email draft tool",
+            "language": "TypeScript",
+            "topics": ["react"],
+            "html_url": "https://github.com/example/EmailDrafter",
+            "stargazers_count": 3,
+            "forks_count": 2,
+            "pushed_at": "2026-03-06T00:00:00Z",
+        },
+        "Built a dashboard API workflow with clean export.",
+        {"TypeScript": 1000},
+        [],
+    )
+    assert "fork" not in fallback["impact"].lower()
+    assert "maintained through" not in fallback["impact"].lower()
+
+
 def test_profile_service_import_profile_data_repairs_project_links_and_certificates(monkeypatch):
     service = ProfileService()
     calls = {"projects": [], "certifications": [], "candidate": []}
@@ -197,7 +250,7 @@ def test_profile_service_import_profile_data_repairs_project_links_and_certifica
     monkeypatch.setattr(service, "add_project", lambda title, stack, repo, impact: calls["projects"].append((title, stack, repo, impact)))
     monkeypatch.setattr(service, "add_certification", lambda title: calls["certifications"].append(title))
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
 
     result = asyncio.run(service.import_profile_data({
         "candidate": {
@@ -231,7 +284,7 @@ def test_profile_service_import_profile_data_saves_snapshot_fallback(monkeypatch
     monkeypatch.setattr(service, "add_skill", lambda _name, _category: (_ for _ in ()).throw(RuntimeError("graph locked")))
     monkeypatch.setattr(service, "add_project", lambda _title, _stack, _repo, _impact: (_ for _ in ()).throw(RuntimeError("graph locked")))
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
     monkeypatch.setattr("profile.service.graph_profile.save_profile_snapshot", lambda profile: saved.update(profile))
 
     result = asyncio.run(service.import_profile_data({
@@ -264,7 +317,7 @@ def test_profile_service_ingest_resume_saves_snapshot_fallback(monkeypatch):
     monkeypatch.setattr(service, "get_profile", lambda: {"n": "", "s": "", "skills": [], "projects": [], "exp": []})
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
     monkeypatch.setattr("profile.service.graph_profile.save_profile_snapshot", lambda profile: saved.update(profile))
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
 
     result = asyncio.run(service.ingest_resume("resume text", None))
 
@@ -290,12 +343,62 @@ def test_profile_service_ingest_resume_preserves_projects_after_graph_refresh(mo
     monkeypatch.setattr(service, "refresh_profile_snapshot", lambda: None)
     monkeypatch.setattr("profile.service.graph_profile.forget_profile_deletions_for_profile", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("profile.service.graph_profile.save_profile_snapshot", lambda profile: saved_profiles.append(profile))
-    monkeypatch.setattr("profile.service.graph_profile.sync_vectors_from_graph", lambda: {"status": "ok"})
+    monkeypatch.setattr(service, "_run_post_ingest_sync", _ok_post_ingest_sync)
 
     result = asyncio.run(service.ingest_resume("resume text", None))
 
     assert result.projects[0].title == "Hiring Agent"
     assert saved_profiles[-1]["projects"][0]["title"] == "Hiring Agent"
+
+
+def test_resume_heuristic_keeps_all_projects_and_single_education_entry():
+    from profile import ingestor
+
+    resume = """
+Vasudev Siddh
+Full Stack AI Engineer
+
+Skills
+Python, TypeScript, React, FastAPI, Tauri, PostgreSQL
+
+Experience
+AI Engineering Intern | Vaani Labs | Jan 2025 - Apr 2025
+- Built FastAPI services for real-time voice agents.
+- Developed React dashboards for prompt review.
+- Engineered LLM evaluation workflows for production releases.
+
+Projects
+BranchGPT - Multi-agent branching chat interface for experiments.
+Stack: Python, FastAPI, React
+JustHireMe - Local-first job search workbench with graph matching.
+Stack: TypeScript, Tauri, FastAPI, PostgreSQL
+ASCIIRealTime - Live video-to-ASCII renderer with browser processing.
+Stack: TypeScript, Canvas API, React
+EmailDrafter - AI email draft tool with editable previews.
+Stack: Python, OpenAI, FastAPI
+
+Education
+Lovely Professional University
+Bachelor of Technology in Computer Science
+2022 - 2026
+Lovely Professional University
+CGPA 8.5
+"""
+
+    parsed = ingestor._parse_resume_heuristic(resume)
+
+    assert [project.title for project in parsed.projects] == [
+        "BranchGPT",
+        "JustHireMe",
+        "ASCIIRealTime",
+        "EmailDrafter",
+    ]
+    assert len(parsed.exp) == 1
+    assert parsed.exp[0].role == "AI Engineering Intern"
+    assert parsed.exp[0].co == "Vaani Labs"
+    assert len(parsed.education) == 1
+    assert "Lovely Professional University" in parsed.education[0]
+    assert "Bachelor of Technology" in parsed.education[0]
 
 
 def test_graph_profile_get_profile_merges_snapshot_with_existing_graph(monkeypatch):

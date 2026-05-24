@@ -5,8 +5,8 @@
 Ingest paths create direct edges per item but not the derived correlation
 edges (RELATED_SKILL / SIMILAR_PROJECT / PROJECT_SUPPORTS_EXPERIENCE /
 credential->skill). rebuild_profile_correlations() runs sync_profile_relationships
-then sync_vectors_from_graph, and every ingest service path must queue it so the
-knowledge graph and vectors reflect the freshly imported profile.
+then sync_vectors_from_graph, and every ingest service path must await it so the
+knowledge graph and vectors reflect the freshly imported profile before the UI refreshes.
 """
 
 import ast
@@ -30,8 +30,8 @@ def test_rebuild_profile_correlations_runs_relationships_then_vectors(monkeypatc
     assert out["vectors"] == {"status": "ok"}
 
 
-def test_every_ingest_path_queues_post_ingest_sync():
-    """resume / github / linkedin / json-import must all queue the correlation rebuild."""
+def test_every_ingest_path_awaits_post_ingest_sync():
+    """resume / github / linkedin / json-import must await the correlation rebuild."""
     src = (BACKEND / "profile" / "service.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     service = next(
@@ -44,19 +44,20 @@ def test_every_ingest_path_queues_post_ingest_sync():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
 
-    def calls_queue(method) -> bool:
+    def awaits_sync(method) -> bool:
         return any(
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "_queue_post_ingest_sync"
+            isinstance(node, ast.Await)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "_run_post_ingest_sync"
             for node in ast.walk(method)
         )
 
     for name in ["ingest_resume", "ingest_github", "ingest_linkedin", "import_profile_data"]:
         assert name in methods, f"{name} missing from ProfileService"
-        assert calls_queue(methods[name]), f"{name} must call self._queue_post_ingest_sync()"
+        assert awaits_sync(methods[name]), f"{name} must await self._run_post_ingest_sync()"
 
 
-def test_queue_post_ingest_sync_targets_rebuild_correlations():
+def test_post_ingest_sync_targets_rebuild_correlations():
     src = (BACKEND / "profile" / "service.py").read_text(encoding="utf-8")
     assert "graph_profile.rebuild_profile_correlations" in src

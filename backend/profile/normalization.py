@@ -66,11 +66,16 @@ EDUCATION_ANCHOR_RE = re.compile(
     r"b\.?\s?e\.?|m\.?\s?e\.?|bsc|msc|bca|mca|mba|ph\.?d|degree|diploma)\b",
     re.I,
 )
+INSTITUTION_ANCHOR_RE = re.compile(r"\b(university|college|institute|school|academy|polytechnic)\b", re.I)
+DEGREE_ANCHOR_RE = re.compile(
+    r"\b(b\.?\s?tech|bachelor|master|m\.?\s?tech|b\.?\s?e\.?|m\.?\s?e\.?|bsc|msc|bca|mca|mba|ph\.?d|degree|diploma)\b",
+    re.I,
+)
 GRADE_RE = re.compile(r"\b(cgpa|gpa|grade|percentage|marks?|score)\b|^\d+(?:\.\d+)?\s*/\s*\d+$|^\d+(?:\.\d+)?$", re.I)
 DATE_RE = re.compile(r"\b(?:19|20)\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b", re.I)
 ACTION_SENTENCE_RE = re.compile(
     r"^(built|created|developed|designed|engineered|implemented|integrated|led|launched|shipped|supports?|"
-    r"automated|optimized|improved|reduced|increased|features?|worked|used|using)\b",
+    r"automated|optimized|improved|reduced|increased|features?|worked|used|using|maintained|deployed)\b",
     re.I,
 )
 URL_RE = re.compile(r"https?://[^\s|)]+|www\.[^\s|)]+", re.I)
@@ -105,6 +110,27 @@ CERTIFICATE_ISSUERS = {
     "meta",
     "ibm",
     "linkedin learning",
+}
+REPO_METADATA_SKILL_RE = re.compile(
+    r"(?i)(?:"
+    r"^\d+(?:\.\d+)?\s+(?:forks?|stars?|watchers?|issues?|prs?|pull\s+requests?|commits?|branches?|repos?)$|"
+    r"\b(?:maintained|updated|pushed|created)\s+(?:through|until|on|at)\s+(?:19|20)\d{2}(?:-\d{2}){0,2}\b|"
+    r"\b(?:last\s+pushed|pushed\s+at|updated\s+at|created\s+at)\b|"
+    r"\b(?:live\s+preview|deployed\s+live|accessible\s+via|fully\s+client-side)\b"
+    r")"
+)
+GENERIC_SKILL_DENYLIST = {
+    "copy",
+    "fork",
+    "forks",
+    "maintain",
+    "maintained",
+    "preview",
+    "send",
+    "sent",
+    "star",
+    "stars",
+    "updated",
 }
 
 
@@ -287,7 +313,7 @@ def normalize_projects(raw_items: list[Any], *, known_skills: list[str] | None =
             if repo_title and _valid_project_title(repo_title, known):
                 title = repo_title
 
-        if impact and (_looks_like_stack_cluster(impact) or (len(impact.split()) <= 5 and _known_skill_hits(impact))):
+        if impact and _looks_like_skill_only_text(impact):
             stack_items = _dedupe(stack_items + split_skill_names(impact))
             impact = ""
 
@@ -366,10 +392,13 @@ def normalize_education_entries(raw_items: list[Any]) -> list[str]:
         if _is_section_or_noise(line):
             continue
         if _education_anchor(line):
-            if current:
-                items.append(current)
-            current = _clean_text(" ".join([line, *pending_details]))
-            pending_details = []
+            if current and _education_same_entry(current, line):
+                current = _append_detail(current, line)
+            else:
+                if current:
+                    items.append(current)
+                current = _clean_text(" ".join([line, *pending_details]))
+                pending_details = []
             continue
         if _education_detail(line):
             if current:
@@ -383,6 +412,24 @@ def normalize_education_entries(raw_items: list[Any]) -> list[str]:
     if current:
         items.append(current)
     return _dedupe([_clean_text(item) for item in items if _valid_education_item(item)])[:20]
+
+
+def _education_same_entry(current: str, line: str) -> bool:
+    current_clean = _clean_text(current)
+    line_clean = _clean_text(line)
+    if not current_clean or not line_clean:
+        return False
+    current_key = _key(current_clean)
+    line_key = _key(line_clean)
+    if line_key and line_key in current_key:
+        return True
+    current_has_institution = bool(INSTITUTION_ANCHOR_RE.search(current_clean))
+    current_has_degree = bool(DEGREE_ANCHOR_RE.search(current_clean))
+    line_has_institution = bool(INSTITUTION_ANCHOR_RE.search(line_clean))
+    line_has_degree = bool(DEGREE_ANCHOR_RE.search(line_clean))
+    return (current_has_institution and line_has_degree and not line_has_institution) or (
+        current_has_degree and line_has_institution and not current_has_institution
+    )
 
 
 def normalize_text_entries(raw_items: list[Any], *, kind: str) -> list[str]:
@@ -523,9 +570,17 @@ def _valid_skill(skill: str) -> bool:
     lower = clean.lower()
     if not clean or len(clean) > 60 or "@" in clean or "http" in lower:
         return False
+    if REPO_METADATA_SKILL_RE.search(clean):
+        return False
+    if lower in GENERIC_SKILL_DENYLIST:
+        return False
     if _is_section_or_noise(clean) or _education_detail(clean):
         return False
     if len(clean.split()) > 5:
+        return False
+    if len(clean.split()) > 2 and _known_skill_hits(clean) and _key(clean) not in _known_skill_key_set():
+        return False
+    if len(clean.split()) == 1 and lower == clean and _key(clean) not in _known_skill_key_set():
         return False
     return not ACTION_SENTENCE_RE.search(clean)
 
@@ -576,6 +631,15 @@ def _looks_like_stack_cluster(title: str) -> bool:
         return False
     hits = _known_skill_hits(clean)
     return bool(len(hits) >= 2 and (len(clean.split()) <= 8 or re.search(r"[A-Za-z]\.[A-Za-z]|[a-z][A-Z]", clean)))
+
+
+def _looks_like_skill_only_text(text: str) -> bool:
+    clean = _clean_text(text)
+    if not clean:
+        return False
+    if _looks_like_stack_cluster(clean):
+        return True
+    return _key(clean) in _known_skill_key_set()
 
 
 def _projectish_text(text: str) -> bool:
@@ -667,9 +731,13 @@ def _known_skill_hits(text: str) -> list[str]:
         key = re.sub(r"[^a-z0-9]+", "", raw.lower())
         if len(key) < 2:
             continue
-        if re.search(r"(?<![a-z0-9+#.-])" + re.escape(raw) + r"(?![a-z0-9+#.-])", text, re.I) or key in compact:
+        if re.search(r"(?<![a-z0-9+#.-])" + re.escape(raw) + r"(?![a-z0-9+#.-])", text, re.I) or (len(key) > 2 and key in compact):
             hits.append(canonical)
     return _dedupe(hits)
+
+
+def _known_skill_key_set() -> set[str]:
+    return {_key(item) for item in [*SKILL_CANONICAL.keys(), *SKILL_CANONICAL.values()] if _key(item)}
 
 
 def _canonical_skill(value: str) -> str:

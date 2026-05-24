@@ -50,7 +50,6 @@ MAX_MANIFESTS_PER_REPO = 6
 NO_TOKEN_DETAIL_REPO_LIMIT = 12
 NO_TOKEN_LLM_REPO_LIMIT = 10
 TOKEN_LLM_REPO_LIMIT = 40
-_GITHUB_SESSION_TIMEOUT = 270  # hard cap for the entire scan (frontend waits 300s)
 
 TOPIC_SKILLS = {
     "nextjs": "Next.js",
@@ -92,6 +91,10 @@ DEPENDENCY_SKILLS = {
     "vite": "Vite",
     "typescript": "TypeScript",
     "tailwindcss": "Tailwind CSS",
+    "three": "Three.js",
+    "zod": "Zod",
+    "lucide-react": "Lucide React",
+    "@vercel/analytics": "Vercel Analytics",
     "framer-motion": "Framer Motion",
     "fastapi": "FastAPI",
     "pydantic": "Pydantic",
@@ -134,7 +137,7 @@ async def _fetch(url: str, token: str | None, *, _retries: int = 2) -> dict | li
     last_exc: Exception | None = None
     for attempt in range(_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=45) as client:
                 response = await client.get(url, headers=_gh_headers(token))
                 if response.status_code == 404:
                     return None
@@ -248,15 +251,9 @@ def _parse_dt(value: str | None):
 
 
 def _split_stack(value: str) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in re.split(r"[,;/|]", value or ""):
-        item = re.sub(r"\s+", " ", raw).strip(" .:-")
-        key = item.lower()
-        if item and len(item) <= 50 and key not in seen:
-            seen.add(key)
-            out.append(item)
-    return out
+    from profile.normalization import normalize_stack
+
+    return normalize_stack(value)
 
 
 def _skills_from_topics(topics: list[str]) -> list[str]:
@@ -322,14 +319,9 @@ def _fallback_project(repo: dict, readme: str, languages: dict, manifest_skills:
     impact_parts = []
     if repo.get("homepage"):
         impact_parts.append(f"Live project: {repo['homepage']}")
-    if repo.get("stargazers_count"):
-        impact_parts.append(f"{repo.get('stargazers_count')} GitHub stars")
-    if repo.get("forks_count"):
-        impact_parts.append(f"{repo.get('forks_count')} forks")
-    if repo.get("pushed_at"):
-        impact_parts.append(f"maintained through {str(repo.get('pushed_at'))[:10]}")
-    if not impact_parts:
-        impact_parts.extend(_readme_features(readme, 2))
+    impact_parts.extend(_readme_features(readme, 2))
+    if desc and desc != name and desc not in impact_parts:
+        impact_parts.append(desc)
     return {
         "title": name,
         "stack": ", ".join(stack),
@@ -398,7 +390,9 @@ async def _extract_project(repo: dict, readme: str, languages: dict, manifest_su
         f"Dependency/manifest evidence:\n{_truncate(manifest_summary, 2500)}\n\n"
         f"README:\n{_truncate(readme)}\n\n"
         "Return JSON with description, stack, impact, features, and is_relevant. "
-        "Use concrete evidence. Mark irrelevant only for empty forks, boilerplate, tutorial clones, or no original work."
+        "Use concrete evidence. Stack must contain only real languages, frameworks, tools, libraries, or platforms. "
+        "Never put repository metadata such as forks, stars, last-pushed dates, or maintained-through dates in stack or impact. "
+        "Mark irrelevant only for empty forks, boilerplate, tutorial clones, or no original work."
     )
 
     from llm import acall_llm
@@ -494,14 +488,7 @@ async def ingest_github(username: str, token: str | None = None, max_repos: int 
     Fetch a GitHub user's owned repositories, inspect README/languages/manifests,
     and return structured profile additions.
     """
-    try:
-        return await asyncio.wait_for(
-            _ingest_github_inner(username, token, max_repos),
-            timeout=_GITHUB_SESSION_TIMEOUT,
-        )
-    except TimeoutError:
-        _log.warning("github ingest timed out after %ds for %s", _GITHUB_SESSION_TIMEOUT, username)
-        return {"error": f"GitHub scan timed out after {_GITHUB_SESSION_TIMEOUT}s. Try reducing 'Max repos to scan' or adding a GitHub token.", "error_kind": "timeout", "status_code": 504}
+    return await _ingest_github_inner(username, token, max_repos)
 
 
 async def _ingest_github_inner(username: str, token: str | None = None, max_repos: int = 100) -> dict:

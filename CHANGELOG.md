@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.36 - 2026-05-24
+
+- Hardened resume/GitHub ingestion: PDF text extraction now preserves page line breaks, resume heuristics avoid splitting one role into multiple experience entries, education lines merge into one school record, and GitHub stack cleanup rejects repo metadata/noise like forks, maintained-through dates, package filler, and verbs.
+- GitHub and profile ingestion no longer use fixed client/backend scan timeouts; the UI shows an active progress panel while long imports run, and ingestion responses now wait for Kùzu graph correlation rebuilds plus Lance vector sync before triggering Profile/Knowledge refreshes.
+
 ## 1.0.35 - 2026-05-24
 
 - Reworked rapid profile-delete handling: replaced the serial delete queue with a single in-flight lock so only one delete runs at a time. The clicked row stays visible with a "Deleting..." loader, every other delete button is disabled, and the UI does not unlock until the backend delete and profile refresh both finish.

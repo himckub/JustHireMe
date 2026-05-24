@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 
 
 def _content(value: str) -> dict:
@@ -154,3 +155,11 @@ def test_github_ingestor_does_not_label_rate_limit_as_missing_user(monkeypatch):
     assert result["error_kind"] == "github_unavailable"
     assert result["status_code"] == 429
     assert "not found" not in result["error"].lower()
+
+
+def test_github_ingestor_has_no_whole_scan_timeout():
+    import profile.github_ingestor as gh
+
+    source = inspect.getsource(gh.ingest_github)
+    assert "wait_for" not in source
+    assert "timed out after" not in source

@@ -1711,6 +1711,95 @@
   resize: vertical;
 }
 
+.ingestion-progress-card {
+  padding: 18px;
+  border: 1px solid rgba(90, 128, 82, 0.24);
+  border-radius: 10px;
+  background: rgba(250, 251, 247, 0.92);
+  box-shadow: 0 12px 28px rgba(31,26,20,0.05);
+  display: grid;
+  gap: 14px;
+}
+
+.ingestion-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ingestion-progress-head strong,
+.ingestion-progress-head span {
+  display: block;
+}
+
+.ingestion-progress-head strong {
+  font-size: 14px;
+}
+
+.ingestion-progress-head span {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ingestion-progress-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid rgba(90,128,82,0.18);
+  border-top-color: var(--green);
+  animation: spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+
+.ingestion-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(31,26,20,0.08);
+}
+
+.ingestion-progress-track span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), var(--teal), var(--yellow));
+  animation: progress-scan 1.4s ease-in-out infinite;
+}
+
+.ingestion-progress-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ingestion-progress-steps div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ingestion-progress-steps div span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(90,128,82,0.12);
+  flex: 0 0 auto;
+}
+
+@keyframes progress-scan {
+  0% { transform: translateX(-110%); }
+  55% { transform: translateX(85%); }
+  100% { transform: translateX(245%); }
+}
+
 .ingestion-accent-teal { background: linear-gradient(135deg, rgba(207,228,223,0.76), rgba(255,255,255,0.74)); color: var(--teal-ink); }
 .ingestion-accent-blue { background: linear-gradient(135deg, rgba(225,234,244,0.78), rgba(255,255,255,0.74)); color: var(--blue-ink); }
 .ingestion-accent-yellow { background: linear-gradient(135deg, rgba(245,232,184,0.76), rgba(255,255,255,0.74)); color: var(--yellow-ink); }
@@ -1731,10 +1820,18 @@
   .ingestion-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .ingestion-progress-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
   .ingestion-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .ingestion-progress-steps {
     grid-template-columns: 1fr;
   }
 

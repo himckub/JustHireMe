@@ -240,7 +240,7 @@ def _pdf(path: str) -> str:
     try:
         from pypdf import PdfReader
         pages = PdfReader(path).pages
-        text = " ".join(pg.extract_text() or "" for pg in pages)
+        text = "\n".join(pg.extract_text() or "" for pg in pages)
         if not text.strip():
             _log.warning("PDF has no extractable text (may be scanned/image-only): %s", path)
         return text
@@ -639,17 +639,13 @@ def _parse_resume_heuristic(txt: str) -> C:
     for line in exp_lines[:30]:
         if len(line) < 6:
             continue
-        # Detect role/title lines
-        if re.search(r"\b(intern|engineer|developer|manager|designer|analyst|consultant|lead|architect|scientist|director|officer|founder|co-founder|specialist)\b", line, flags=re.I):
+        header = _resume_experience_header(line)
+        if header:
             if current_exp:
                 # Extract skills from description text
                 desc_skills = [term for term in known_terms if re.search(r"(?<![a-z0-9+#.-])" + re.escape(term.lower()) + r"(?![a-z0-9+#.-])", current_exp.get("d", "").lower())]
                 exp.append(E(role=current_exp["role"], co=current_exp["co"], period=current_exp.get("period", ""), d=current_exp.get("d", ""), s=desc_skills))
-            role, company = line, ""
-            if " at " in line.lower():
-                parts = re.split(r"\s+at\s+", line, maxsplit=1, flags=re.I)
-                role, company = parts[0], parts[1]
-            current_exp = {"role": role[:180], "co": company[:180], "period": "", "d": ""}
+            current_exp = header
             continue
         # Date patterns → period
         if current_exp and re.search(r"\b(?:19|20)\d{2}\b.*(?:present|current|19|20)\d{0,2}", line, flags=re.I):
@@ -682,6 +678,37 @@ def _parse_resume_heuristic(txt: str) -> C:
     from profile.normalization import normalize_candidate_model
 
     return normalize_candidate_model(parsed)
+
+
+def _resume_experience_header(line: str) -> dict | None:
+    clean = _strip_md(line)
+    if not clean or _resume_line_is_detail(clean) or clean.endswith("."):
+        return None
+    if len(clean.split()) > 16:
+        return None
+    role_re = r"\b(intern|engineer|engineering|developer|manager|designer|analyst|consultant|lead|architect|scientist|director|officer|founder|co-founder|specialist)\b"
+    if not re.search(role_re, clean, flags=re.I):
+        return None
+
+    period = ""
+    role = clean
+    company = ""
+    if " at " in clean.lower():
+        parts = re.split(r"\s+at\s+", clean, maxsplit=1, flags=re.I)
+        role, company = parts[0], parts[1]
+    else:
+        parts = [part.strip(" -|") for part in re.split(r"\s+\|\s+|\s+-\s+", clean) if part.strip(" -|")]
+        if len(parts) >= 2:
+            date_parts = [part for part in parts if re.search(r"\b(?:19|20)\d{2}\b|present|current", part, re.I)]
+            text_parts = [part for part in parts if part not in date_parts]
+            if text_parts:
+                role = text_parts[0]
+            if len(text_parts) >= 2:
+                company = text_parts[1]
+            if date_parts:
+                period = " - ".join(date_parts)
+
+    return {"role": role[:180], "co": company[:180], "period": period[:100], "d": ""}
 
 
 def _projects_from_resume_lines(lines: list[str], skills: list) -> list:

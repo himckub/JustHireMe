@@ -132,7 +132,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const r = await api(`/api/v1/ingest`, { method: "POST", body: fd, timeoutMs: 180000 });
+      const r = await api(`/api/v1/ingest`, { method: "POST", body: fd, timeoutMs: 0 });
       if (r.ok) {
         await r.json().catch(() => ({}));
         window.dispatchEvent(new CustomEvent("profile-refresh"));
@@ -156,7 +156,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
     fd.append("file", linkedinFile);
     try {
       const isPdf = linkedinFile.name.toLowerCase().endsWith(".pdf");
-      const r = await api(isPdf ? `/api/v1/ingest` : `/api/v1/ingest/linkedin`, { method: "POST", body: fd });
+      const r = await api(isPdf ? `/api/v1/ingest` : `/api/v1/ingest/linkedin`, { method: "POST", body: fd, timeoutMs: 0 });
       if (r.ok) {
         const data = await r.json();
         setLinkedinResult(isPdf ? {
@@ -191,9 +191,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: githubUsername, token: githubToken, max_repos: githubMaxRepos }),
-        // Backend caps the scan at 270s; wait a bit longer so the backend always
-        // returns (success or a clean message) before the client aborts.
-        timeoutMs: 300000,
+        timeoutMs: 0,
       });
       if (r.ok) {
         const data = await r.json();
@@ -220,7 +218,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: portfolioUrl, auto_import: autoImport }),
-        timeoutMs: 180000,
+        timeoutMs: 0,
       });
       const data = await r.json().catch(() => ({}));
       if (r.ok) {
@@ -255,7 +253,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        timeoutMs: 300000,
+        timeoutMs: 0,
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -306,6 +304,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),
+        timeoutMs: 0,
       });
       const data = await r.json().catch(() => ({}));
       if (r.ok) {
@@ -329,7 +328,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
     const fd = new FormData();
     fd.append("raw", rawText);
     try {
-      const r = await api(`/api/v1/ingest`, { method: "POST", body: fd });
+      const r = await api(`/api/v1/ingest`, { method: "POST", body: fd, timeoutMs: 0 });
       if (r.ok) {
         window.dispatchEvent(new CustomEvent("profile-refresh"));
         window.dispatchEvent(new CustomEvent("graph-refresh"));
@@ -356,6 +355,13 @@ export function IngestionView({ api }: { api: ApiFetch }) {
     { id: "json-import" as const, label: "JSON", description: "Structured import", icon: "download", accent: "pink" },
   ];
   const activeTabMeta = TABS.find(t => t.id === activeTab) ?? TABS[0];
+  const githubProgressSteps = [
+    "Fetching repository list",
+    "Reading READMEs and language maps",
+    "Cleaning stack evidence",
+    "Saving profile records",
+    "Syncing graph and vectors",
+  ];
 
   return (
     <div className="ingestion-page scroll">
@@ -408,7 +414,7 @@ export function IngestionView({ api }: { api: ApiFetch }) {
             <div style={{ fontSize: 14, color: "var(--ink-3)", maxWidth: 360, lineHeight: 1.5 }}>PDF, DOCX, TXT, or Markdown. The ingestion agent discovers skills, roles, and projects and maps them into your graph.</div>
             <input type="file" accept=".pdf,.docx,.txt,.md" onChange={e => e.target.files?.[0] && ingestResume(e.target.files[0])} style={{ display: "none" }} id="resume-in" />
             <button className="btn btn-primary" style={{ marginTop: 16, padding: "12px 32px", fontSize: 15 }} onClick={() => document.getElementById("resume-in")?.click()}>Select Resume File</button>
-            {status === "loading" && <div className="mono pulse" style={{ fontSize: 12, marginTop: 16 }}>Agent parsing resume...</div>}
+            {status === "loading" && <div className="mono pulse" style={{ fontSize: 12, marginTop: 16 }}>Parsing resume, saving profile, syncing graph...</div>}
           </motion.div>
         )}
 
@@ -572,8 +578,25 @@ export function IngestionView({ api }: { api: ApiFetch }) {
             <button className="btn btn-primary" style={{ padding: 16, fontSize: 15 }}
               disabled={!githubUsername.trim() || status === "loading"}
               onClick={ingestGithub}>
-              {status === "loading" ? "Fetching repos, READMEs, languages, and manifests..." : "Scan GitHub profile"}
+              {status === "loading" ? "Scanning GitHub and syncing graph..." : "Scan GitHub profile"}
             </button>
+            {status === "loading" && (
+              <div className="ingestion-progress-card" role="status" aria-live="polite">
+                <div className="ingestion-progress-head">
+                  <span className="ingestion-progress-spinner" aria-hidden="true" />
+                  <div>
+                    <strong>{githubUsername.trim() ? `Scanning @${githubUsername.trim()}` : "Scanning GitHub"}</strong>
+                    <span>No fixed timeout; this stays open until GitHub returns or the local sync finishes.</span>
+                  </div>
+                </div>
+                <div className="ingestion-progress-track" aria-hidden="true"><span /></div>
+                <div className="ingestion-progress-steps">
+                  {githubProgressSteps.map(step => (
+                    <div key={step}><span aria-hidden="true" />{step}</div>
+                  ))}
+                </div>
+              </div>
+            )}
             {githubResult && !githubResult.errorMsg && (
               <div className="card col gap-3" style={{ padding: 24 }}>
                 <div className="row gap-3" style={{ alignItems: "center" }}>
